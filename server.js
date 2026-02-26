@@ -29,8 +29,6 @@ app.use("/send-otp", otpLimiter);
 // 🔐 Gmail SMTP (Using Environment Variables)
 const transport = nodemailer.createTransport({
   service: "gmail",
-  port: 465,
-  secure: true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
@@ -148,3 +146,4 @@ app.listen(PORT, () => {
   console.log("🚀 Server running on port " + PORT);
 
 });
+
