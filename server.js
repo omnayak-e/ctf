@@ -1,7 +1,7 @@
 const express = require("express");
-const nodemailer = require("nodemailer");
 const path = require("path");
 const rateLimit = require("express-rate-limit");
+const axios = require("axios");
 
 const app = express();
 
@@ -9,7 +9,6 @@ app.use(express.json());
 app.use(express.static(__dirname));
 app.set("trust proxy", 1);
 
-// 🔐 Allowed Admin Emails
 const allowedEmails = [
   "omseshdevnayak@gmail.com",
   "umeshkoli.400078@gmail.com",
@@ -17,7 +16,6 @@ const allowedEmails = [
   "admin4@gmail.com"
 ];
 
-// 🔐 Rate Limiter (OTP abuse protection)
 const otpLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 5,
@@ -26,20 +24,9 @@ const otpLimiter = rateLimit({
 
 app.use("/send-otp", otpLimiter);
 
-// 🔐 Gmail SMTP (Using Environment Variables)
-const transport = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
-
-// Temporary in-memory storage
 let otpStore = {};
 let authenticatedUsers = {};
 
-// 🔑 Generate 10-character OTP
 function generateOTP(length = 10) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
@@ -50,9 +37,9 @@ function generateOTP(length = 10) {
   return otp;
 }
 
-// 📩 SEND OTP
+// 📩 SEND OTP (Mailtrap API)
 app.post("/send-otp", async (req, res) => {
-  let email = req.body.email;
+  let { email } = req.body;
 
   if (!email) {
     return res.status(400).json({ message: "Email required" });
@@ -61,7 +48,7 @@ app.post("/send-otp", async (req, res) => {
   email = email.toLowerCase();
 
   if (!allowedEmails.includes(email)) {
-    return res.status(403).json({ message: "Access denied ❌ Not authorized" });
+    return res.status(403).json({ message: "Access denied ❌" });
   }
 
   const otp = generateOTP(10);
@@ -73,21 +60,34 @@ app.post("/send-otp", async (req, res) => {
   };
 
   try {
-    await transport.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: "Your Secure Login Code",
-      text: `Your secure verification code is:\n\n${otp}\n\nThis code expires in 5 minutes.`
-    });
+    await axios.post(
+      "https://send.api.mailtrap.io/api/send",
+      {
+        from: {
+          email: "admin@demo.mailtrap.io",
+          name: "CTF Admin"
+        },
+        to: [{ email }],
+        subject: "Your Secure Login Code",
+        text: `Your secure verification code is:\n\n${otp}\n\nExpires in 5 minutes.`
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.MAILTRAP_API_TOKEN}`
+        }
+      }
+    );
 
     res.json({ message: "OTP Sent ✅ Check your email" });
+
   } catch (error) {
-    console.error(error);
+    console.error(error.response?.data || error.message);
     res.status(500).json({ message: "Error sending OTP ❌" });
   }
 });
 
-// ✅ VERIFY OTP
+// VERIFY OTP
 app.post("/verify-otp", (req, res) => {
   let { email, otp } = req.body;
 
@@ -113,11 +113,7 @@ app.post("/verify-otp", (req, res) => {
 
   if (otpStore[email].otp === otp) {
     delete otpStore[email];
-
-    authenticatedUsers[email] = {
-      loginTime: Date.now()
-    };
-
+    authenticatedUsers[email] = { loginTime: Date.now() };
     return res.json({ message: "OTP Verified ✅" });
   } else {
     otpStore[email].attempts++;
@@ -125,7 +121,6 @@ app.post("/verify-otp", (req, res) => {
   }
 });
 
-// 🔐 Dashboard Protection
 app.get("/dashboard", (req, res) => {
   const email = req.query.email?.toLowerCase();
 
@@ -139,11 +134,8 @@ app.get("/dashboard", (req, res) => {
   res.status(403).send("Unauthorized ❌");
 });
 
-// 🚀 Dynamic PORT for Railway
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log("🚀 Server running on port " + PORT);
-
 });
-
